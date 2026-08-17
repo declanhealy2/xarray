@@ -358,6 +358,9 @@ class H5NetCDFStore(WritableCFDataStore):
         else:
             self.ds.dimensions[name] = length
 
+    def resize_dimension(self, name, length):
+        self.ds.resize_dimension(name, length)
+
     def set_attribute(self, key, value):
         if self.format == "NETCDF4_CLASSIC":
             value = encode_nc3_attr_value(value)

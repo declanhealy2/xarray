@@ -17,14 +17,20 @@ from xarray.backends.api import (
     _normalize_path,
     delayed_close_after_writes,
 )
-from xarray.backends.common import AbstractWritableDataStore, ArrayWriter, BytesIOProxy
+from xarray.backends.common import (
+    AbstractWritableDataStore,
+    ArrayWriter,
+    BytesIOProxy,
+    _encode_variable_name,
+)
 from xarray.backends.locks import get_dask_scheduler
 from xarray.backends.store import AbstractDataStore
 from xarray.core.dataset import Dataset
 from xarray.core.datatree import DataTree
 from xarray.core.options import OPTIONS
 from xarray.core.types import NetcdfWriteModes, ZarrWriteModes
-from xarray.core.utils import emit_user_level_warning
+from xarray.core.utils import emit_user_level_warning, is_remote_uri
+from xarray.namedarray.pycompat import is_chunked_array
 
 if TYPE_CHECKING:
     from dask.delayed import Delayed
@@ -253,6 +259,7 @@ def to_netcdf(
     engine: T_NetcdfEngine | None = None,
     encoding: Mapping[Hashable, Mapping[str, Any]] | None = None,
     unlimited_dims: Iterable[Hashable] | None = None,
+    append_dim: Hashable | None = None,
     compute: bool = True,
     *,
     multifile: Literal[True],
@@ -272,6 +279,7 @@ def to_netcdf(
     engine: T_NetcdfEngine | None = None,
     encoding: Mapping[Hashable, Mapping[str, Any]] | None = None,
     unlimited_dims: Iterable[Hashable] | None = None,
+    append_dim: Hashable | None = None,
     compute: bool = True,
     multifile: Literal[False] = False,
     invalid_netcdf: bool = False,
@@ -290,6 +298,7 @@ def to_netcdf(
     engine: T_NetcdfEngine | None = None,
     encoding: Mapping[Hashable, Mapping[str, Any]] | None = None,
     unlimited_dims: Iterable[Hashable] | None = None,
+    append_dim: Hashable | None = None,
     *,
     compute: Literal[False],
     multifile: Literal[False] = False,
@@ -309,6 +318,7 @@ def to_netcdf(
     engine: T_NetcdfEngine | None = None,
     encoding: Mapping[Hashable, Mapping[str, Any]] | None = None,
     unlimited_dims: Iterable[Hashable] | None = None,
+    append_dim: Hashable | None = None,
     compute: Literal[True] = True,
     multifile: Literal[False] = False,
     invalid_netcdf: bool = False,
@@ -328,6 +338,7 @@ def to_netcdf(
     engine: T_NetcdfEngine | None = None,
     encoding: Mapping[Hashable, Mapping[str, Any]] | None = None,
     unlimited_dims: Iterable[Hashable] | None = None,
+    append_dim: Hashable | None = None,
     compute: bool = False,
     multifile: Literal[False] = False,
     invalid_netcdf: bool = False,
@@ -347,6 +358,7 @@ def to_netcdf(
     engine: T_NetcdfEngine | None = None,
     encoding: Mapping[Hashable, Mapping[str, Any]] | None = None,
     unlimited_dims: Iterable[Hashable] | None = None,
+    append_dim: Hashable | None = None,
     compute: bool = False,
     multifile: bool = False,
     invalid_netcdf: bool = False,
@@ -365,6 +377,7 @@ def to_netcdf(
     engine: T_NetcdfEngine | None = None,
     encoding: Mapping[Hashable, Mapping[str, Any]] | None = None,
     unlimited_dims: Iterable[Hashable] | None = None,
+    append_dim: Hashable | None = None,
     compute: bool = False,
     multifile: bool = False,
     invalid_netcdf: bool = False,
@@ -381,6 +394,7 @@ def to_netcdf(
     engine: T_NetcdfEngine | None = None,
     encoding: Mapping[Hashable, Mapping[str, Any]] | None = None,
     unlimited_dims: Iterable[Hashable] | None = None,
+    append_dim: Hashable | None = None,
     compute: bool = True,
     multifile: bool = False,
     invalid_netcdf: bool = False,
@@ -397,6 +411,22 @@ def to_netcdf(
         encoding = {}
 
     normalized_path = _normalize_path(path_or_file)
+
+    if append_dim is not None:
+        if mode != "a":
+            raise ValueError("append_dim requires mode='a'")
+        if multifile:
+            raise NotImplementedError("append_dim is not supported with multifile=True")
+        if normalized_path is None or isinstance(normalized_path, IOBase):
+            raise ValueError("append_dim requires a path to an existing netCDF file")
+        if is_remote_uri(normalized_path):
+            raise NotImplementedError(
+                "append_dim currently supports local netCDF files only"
+            )
+        if not os.path.exists(normalized_path):
+            raise FileNotFoundError(
+                f"cannot append to non-existent netCDF file {normalized_path!r}"
+            )
 
     if engine is None:
         engine = get_default_netcdf_write_engine(normalized_path, format)
@@ -439,7 +469,12 @@ def to_netcdf(
         # TODO: allow this work (setting up the file for writing array data)
         # to be parallelized with dask
         dump_to_store(
-            dataset, store, writer, encoding=encoding, unlimited_dims=unlimited_dims
+            dataset,
+            store,
+            writer,
+            encoding=encoding,
+            unlimited_dims=unlimited_dims,
+            append_dim=append_dim,
         )
         if autoclose:
             store.close()
@@ -466,8 +501,240 @@ def to_netcdf(
     return None
 
 
+def _array_equal(left, right) -> bool:
+    try:
+        return bool(np.array_equal(left, right, equal_nan=True))
+    except TypeError:
+        return bool(np.array_equal(left, right))
+
+
+def _attrs_compatible(provided, existing) -> bool:
+    def normalize(value):
+        if isinstance(value, bytes):
+            try:
+                return value.decode("utf-8")
+            except UnicodeDecodeError:
+                return value
+        array = np.asarray(value)
+        if array.size == 1:
+            scalar = array.reshape(-1)[0]
+            if isinstance(scalar, bytes):
+                try:
+                    return scalar.decode("utf-8")
+                except UnicodeDecodeError:
+                    return scalar
+            return scalar
+        return array
+
+    for key, value in provided.items():
+        if key not in existing:
+            return False
+        if not _array_equal(normalize(value), normalize(existing[key])):
+            return False
+    return True
+
+
+def _existing_dimension_size(existing_variables, dim, stored_size) -> int:
+    if stored_size is not None:
+        return int(stored_size)
+    sizes = {
+        variable.sizes[dim]
+        for variable in existing_variables.values()
+        if dim in variable.dims
+    }
+    if len(sizes) > 1:
+        raise ValueError(
+            "existing netCDF variables disagree on the size of dimension "
+            f"{dim!r}: {sizes}"
+        )
+    return next(iter(sizes), 0)
+
+
+def _append_encoding(name, existing_variable):
+    decoded = conventions.decode_cf_variable(name, existing_variable)
+    encoding = decoded.encoding.copy()
+    for key in ("source", "original_shape", "preferred_chunks"):
+        encoding.pop(key, None)
+    return decoded, encoding
+
+
+def _validate_append_variable(name, new_variable, existing_variable, append_dim):
+    if new_variable.dims != existing_variable.dims:
+        if set(new_variable.dims) == set(existing_variable.dims):
+            new_variable = new_variable.transpose(*existing_variable.dims)
+        else:
+            raise ValueError(
+                f"variable {name!r} already exists with different dimensions: "
+                f"{existing_variable.dims} != {new_variable.dims}"
+            )
+
+    for dim, size in existing_variable.sizes.items():
+        if dim != append_dim and new_variable.sizes[dim] != size:
+            raise ValueError(
+                f"variable {name!r} already exists with a different size for "
+                f"dimension {dim!r}: {size} != {new_variable.sizes[dim]}"
+            )
+
+    if not _attrs_compatible(new_variable.attrs, existing_variable.attrs):
+        raise ValueError(
+            f"variable {name!r} has incompatible attributes with the existing "
+            "netCDF variable"
+        )
+
+    return new_variable
+
+
+def _append_to_store(
+    dataset,
+    variables,
+    attrs,
+    store,
+    writer,
+    check_encoding,
+    unlimited_dims,
+    append_dim,
+):
+    if append_dim not in dataset.dims:
+        raise ValueError(
+            f"append_dim={append_dim!r} does not match any dataset dimension"
+        )
+    if dataset.sizes[append_dim] == 0:
+        raise ValueError("cannot append zero elements to a netCDF dimension")
+    if check_encoding:
+        raise ValueError(
+            "encoding cannot be supplied when append_dim is used; "
+            "the existing netCDF variable encoding is reused"
+        )
+    if any(
+        append_dim in variable.dims and is_chunked_array(variable._data)
+        for variable in variables.values()
+    ):
+        raise NotImplementedError(
+            "append_dim does not yet support chunked arrays"
+        )
+
+    existing_raw = store.get_variables()
+    existing_dimensions = store.get_dimensions()
+    existing_unlimited = set(store.get_encoding().get("unlimited_dims", ()))
+
+    if append_dim not in existing_dimensions:
+        raise ValueError(
+            f"append_dim={append_dim!r} does not exist in the target netCDF file"
+        )
+    if append_dim not in existing_unlimited:
+        raise ValueError(
+            f"append_dim={append_dim!r} is not an unlimited dimension in the "
+            "target netCDF file"
+        )
+    requested_unlimited = set(unlimited_dims or ())
+    if not requested_unlimited <= existing_unlimited:
+        raise ValueError(
+            "append_dim cannot change which existing netCDF dimensions are unlimited"
+        )
+
+    variables = {_encode_variable_name(name): var for name, var in variables.items()}
+    coordinate_names = {_encode_variable_name(name) for name in dataset.coords}
+
+    new_names = set(variables) - set(existing_raw)
+    if new_names:
+        raise ValueError(
+            "append_dim cannot add new variables to an existing netCDF file: "
+            f"{new_names}"
+        )
+
+    existing = {}
+    storage_encoding = {}
+    for name, raw_variable in existing_raw.items():
+        decoded, encoding = _append_encoding(name, raw_variable)
+        existing[name] = decoded
+        storage_encoding[name] = encoding
+
+    existing_append_names = {
+        name for name, variable in existing.items() if append_dim in variable.dims
+    }
+    new_append_names = {
+        name for name, variable in variables.items() if append_dim in variable.dims
+    }
+    if missing := existing_append_names - new_append_names:
+        raise ValueError(
+            "all existing variables that use the append dimension must be present; "
+            f"missing {missing}"
+        )
+
+    validated = {}
+    for name, variable in variables.items():
+        logical = _validate_append_variable(name, variable, existing[name], append_dim)
+        logical = logical.copy(deep=False)
+        logical.encoding = storage_encoding[name].copy()
+        validated[name] = logical
+
+    for name in coordinate_names:
+        variable = validated.get(name)
+        if variable is None or append_dim in variable.dims:
+            continue
+        existing_variable = existing[name]
+        if not _array_equal(
+            np.asarray(variable.data), np.asarray(existing_variable.data)
+        ):
+            raise ValueError(
+                f"coordinate {name!r} differs from the target netCDF file"
+            )
+
+    encoded_variables, encoded_attrs = store.encode(validated, attrs)
+    existing_attrs = store.get_attrs()
+    if not _attrs_compatible(encoded_attrs, existing_attrs):
+        raise ValueError(
+            "dataset attributes are incompatible with the target netCDF file; "
+            "append_dim does not modify existing metadata"
+        )
+
+    for name in new_append_names:
+        raw_new = encoded_variables[name]
+        raw_existing = existing_raw[name]
+        if raw_new.dims != raw_existing.dims:
+            raise ValueError(
+                f"encoded dimensions for variable {name!r} do not match the target "
+                "netCDF file"
+            )
+        if raw_new.dtype != raw_existing.dtype:
+            raise ValueError(
+                f"encoded dtype for variable {name!r} does not match the target "
+                "netCDF file: "
+                f"{raw_existing.dtype} != {raw_new.dtype}"
+            )
+
+    append_start = _existing_dimension_size(
+        existing_raw, append_dim, existing_dimensions[append_dim]
+    )
+    append_stop = append_start + dataset.sizes[append_dim]
+
+    resize_dimension = getattr(store, "resize_dimension", None)
+    if resize_dimension is not None:
+        resize_dimension(append_dim, append_stop)
+
+    effective_unlimited_dims = existing_unlimited
+    for name, variable in encoded_variables.items():
+        if append_dim not in variable.dims:
+            continue
+        target, source = store.prepare_variable(
+            name,
+            variable,
+            False,
+            unlimited_dims=effective_unlimited_dims,
+        )
+        region = [slice(None)] * variable.ndim
+        region[variable.dims.index(append_dim)] = slice(append_start, append_stop)
+        writer.add(source, target, tuple(region))
+
+
 def dump_to_store(
-    dataset, store, writer=None, encoder=None, encoding=None, unlimited_dims=None
+    dataset,
+    store,
+    writer=None,
+    encoder=None,
+    encoding=None,
+    unlimited_dims=None,
+    append_dim=None,
 ):
     """Store dataset contents to a backends.*DataStore object."""
     if writer is None:
@@ -480,15 +747,27 @@ def dump_to_store(
 
     check_encoding = set()
     for k, enc in encoding.items():
-        # no need to shallow copy the variable again; that already happened
-        # in encode_dataset_coordinates
         variables[k].encoding = enc
         check_encoding.add(k)
 
     if encoder:
         variables, attrs = encoder(variables, attrs)
 
-    store.store(variables, attrs, check_encoding, writer, unlimited_dims=unlimited_dims)
+    if append_dim is None:
+        store.store(
+            variables, attrs, check_encoding, writer, unlimited_dims=unlimited_dims
+        )
+    else:
+        _append_to_store(
+            dataset,
+            variables,
+            attrs,
+            store,
+            writer,
+            check_encoding,
+            unlimited_dims,
+            append_dim,
+        )
 
 
 def save_mfdataset(
