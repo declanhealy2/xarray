@@ -4109,6 +4109,7 @@ class DataArray(
         engine: T_NetcdfEngine | None = None,
         encoding: Mapping[Hashable, Mapping[str, Any]] | None = None,
         unlimited_dims: Iterable[Hashable] | None = None,
+        append_dim: Hashable | None = None,
         compute: Literal[True] = True,
         invalid_netcdf: bool = False,
         auto_complex: bool | None = None,
@@ -4126,6 +4127,7 @@ class DataArray(
         engine: T_NetcdfEngine | None = None,
         encoding: Mapping[Hashable, Mapping[str, Any]] | None = None,
         unlimited_dims: Iterable[Hashable] | None = None,
+        append_dim: Hashable | None = None,
         compute: bool = True,
         invalid_netcdf: bool = False,
         auto_complex: bool | None = None,
@@ -4140,6 +4142,7 @@ class DataArray(
         engine: T_NetcdfEngine | None = None,
         encoding: Mapping[Hashable, Mapping[str, Any]] | None = None,
         unlimited_dims: Iterable[Hashable] | None = None,
+        append_dim: Hashable | None = None,
         compute: bool = True,
         invalid_netcdf: bool = False,
         auto_complex: bool | None = None,
@@ -4202,6 +4205,12 @@ class DataArray(
             By default, no dimensions are treated as unlimited dimensions.
             Note that unlimited_dims may also be set via
             ``dataset.encoding["unlimited_dims"]``.
+        append_dim : Hashable, optional
+            Existing unlimited dimension along which to extend a netCDF file.
+            Requires ``mode="a"`` and an existing file. All existing variables
+            that use this dimension must be present in the dataset being appended.
+            Variables that do not use ``append_dim`` are left unchanged. Chunked
+            array inputs are not yet supported.
         compute: bool, default: True
             If true compute immediately, otherwise return a
             ``dask.delayed.Delayed`` object that can be computed later.
@@ -4255,6 +4264,7 @@ class DataArray(
             engine=engine,
             encoding=encoding,
             unlimited_dims=unlimited_dims,
+            append_dim=append_dim,
             compute=compute,
             multifile=False,
             invalid_netcdf=invalid_netcdf,
