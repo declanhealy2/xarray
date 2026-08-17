@@ -278,6 +278,17 @@ class TestDaskOps(TestOps):
         )
 
 
+def test_sum_omits_unspecified_dtype(monkeypatch):
+    class Namespace:
+        @staticmethod
+        def sum(data, *, axis=None):
+            return np.sum(data, axis=axis)
+
+    monkeypatch.setattr(duck_array_ops, "get_array_namespace", lambda data: Namespace)
+    actual = DataArray([1, 2, 3]).sum(skipna=False)
+    assert actual.item() == 6
+
+
 def test_cumsum_1d():
     inputs = np.array([0, 1, 2, 3])
     expected = np.array([0, 1, 3, 6])

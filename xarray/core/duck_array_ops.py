@@ -409,7 +409,10 @@ def sum_where(data, axis=None, dtype=None, where=None):
         a = where_method(xp.zeros_like(data), where, data)
     else:
         a = data
-    result = xp.sum(a, axis=axis, dtype=dtype)
+    if dtype is None:
+        result = xp.sum(a, axis=axis)
+    else:
+        result = xp.sum(a, axis=axis, dtype=dtype)
     return result
 
 
