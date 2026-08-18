@@ -275,7 +275,12 @@ def astype(data, dtype, *, xp=None, **kwargs):
 
     if xp is np or not hasattr(xp, "astype"):
         return data.astype(dtype, **kwargs)
-    return xp.astype(data, dtype, **kwargs)
+    try:
+        return xp.astype(data, dtype, **kwargs)
+    except TypeError:
+        if kwargs == {"copy": False}:
+            return xp.astype(data, dtype)
+        raise
 
 
 def asarray(data, xp=np, dtype=None):
