@@ -289,6 +289,16 @@ def test_sum_omits_unspecified_dtype(monkeypatch):
     assert actual.item() == 6
 
 
+def test_astype_omits_unsupported_copy():
+    class Namespace:
+        @staticmethod
+        def astype(data, dtype):
+            return np.asarray(data, dtype=dtype)
+
+    actual = duck_array_ops.astype([1, 2], np.float32, xp=Namespace, copy=False)
+    assert_array_equal(actual, np.asarray([1, 2], dtype=np.float32))
+
+
 def test_cumsum_1d():
     inputs = np.array([0, 1, 2, 3])
     expected = np.array([0, 1, 3, 6])
