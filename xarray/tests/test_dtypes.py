@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from xarray.compat import array_api_compat
 from xarray.core import dtypes
 from xarray.tests import requires_array_api_strict
 
@@ -56,6 +57,29 @@ def test_result_type_scalars(values, expected) -> None:
     actual = dtypes.result_type(*values)
 
     assert np.issubdtype(actual, expected)
+
+
+def test_array_api_result_type_uses_namespace_dtypes_for_numeric_scalars() -> None:
+    seen = []
+
+    class Namespace:
+        @staticmethod
+        def asarray(value):
+            return np.asarray(value)
+
+        @staticmethod
+        def result_type(*values):
+            seen.extend(values)
+            if any(isinstance(value, str | bytes) for value in values):
+                raise AssertionError("string dtype passed to array API namespace")
+            return np.dtype("float32")
+
+    actual = array_api_compat._future_array_api_result_type(
+        np.asarray([1.0], dtype=np.float32), 0, xp=Namespace
+    )
+
+    assert actual == np.dtype("float32")
+    assert any(isinstance(value, np.dtype) for value in seen)
 
 
 def test_result_type_dask_array() -> None:
