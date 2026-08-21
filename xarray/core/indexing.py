@@ -1778,11 +1778,14 @@ class ArrayApiIndexingAdapter(IndexingAdapter):
         self.array = array
 
     def _oindex_get(self, indexer: OuterIndexer):
-        # manual orthogonal indexing (implemented like DaskIndexingAdapter)
+        xp = self.array.__array_namespace__()
         key = indexer.tuple
         value = self.array
         for axis, subkey in reversed(list(enumerate(key))):
-            value = value[(slice(None),) * axis + (subkey, Ellipsis)]
+            if is_duck_array(subkey):
+                value = xp.take(value, xp.asarray(subkey), axis=axis)
+            else:
+                value = value[(slice(None),) * axis + (subkey, Ellipsis)]
         return value
 
     def _vindex_get(self, indexer: VectorizedIndexer):

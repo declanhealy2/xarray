@@ -905,6 +905,35 @@ def test_implicit_indexing_adapter_copy_on_write() -> None:
     assert isinstance(implicit[:], indexing.ImplicitToExplicitIndexingAdapter)
 
 
+class _ArrayApiTestNamespace:
+    @staticmethod
+    def asarray(value):
+        return np.asarray(value)
+
+    @staticmethod
+    def take(array, indices, *, axis=None):
+        return _ArrayApiTestArray(np.take(array.values, indices, axis=axis))
+
+
+class _ArrayApiTestArray:
+    def __init__(self, values):
+        self.values = np.asarray(values)
+
+    def __array_namespace__(self, api_version=None):
+        return _ArrayApiTestNamespace
+
+    def __getitem__(self, key):
+        return _ArrayApiTestArray(self.values[key])
+
+
+def test_array_api_outer_indexing_uses_namespace_take() -> None:
+    array = _ArrayApiTestArray(np.arange(12).reshape(3, 4))
+    actual = indexing.ArrayApiIndexingAdapter(array).oindex[
+        indexing.OuterIndexer((np.array([2, 0]), slice(1, 4)))
+    ]
+    np.testing.assert_array_equal(actual.values, [[9, 10, 11], [1, 2, 3]])
+
+
 def test_implicit_indexing_adapter_duck_array() -> None:
     array = DuckArrayWrapper(array=np.arange(10))
     implicit = indexing.ImplicitToExplicitIndexingAdapter(
