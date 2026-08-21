@@ -32,7 +32,12 @@ def _future_array_api_result_type(*arrays_and_dtypes, xp):
         str: "str",
         bytes: "bytes",
     }
-    dtypes = [possible_dtypes.get(type(x), "object") for x in weakly_dtyped]
+    dtypes = [
+        xp.asarray(x).dtype
+        if not isinstance(x, str | bytes)
+        else possible_dtypes.get(type(x), "object")
+        for x in weakly_dtyped
+    ]
 
     return xp.result_type(dtype, *dtypes)
 
