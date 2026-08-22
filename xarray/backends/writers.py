@@ -431,6 +431,15 @@ def to_netcdf(
     if engine is None:
         engine = get_default_netcdf_write_engine(normalized_path, format)
 
+    dataset = dataset._replace(
+        variables={
+            name: variable
+            if is_chunked_array(variable._data)
+            else variable.as_numpy()
+            for name, variable in dataset.variables.items()
+        }
+    )
+
     # validate Dataset keys, DataArray names, and attr keys/values
     _validate_dataset_names(dataset)
     _validate_attrs(dataset, engine, invalid_netcdf)

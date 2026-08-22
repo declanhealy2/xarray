@@ -18,6 +18,25 @@ def _available_engines() -> list[str]:
 
 
 @pytest.mark.parametrize("engine", _available_engines())
+def test_to_netcdf_mlx_array(tmp_path, engine):
+    mx = pytest.importorskip("mlx.core")
+    path = tmp_path / "mlx.nc"
+    first = xr.Dataset(
+        {"signal": ("cpi", mx.array([1.0, 2.0], dtype=mx.float32))},
+        coords={"cpi": [0, 1]},
+    )
+    first.to_netcdf(path, engine=engine, unlimited_dims=["cpi"])
+    second = xr.Dataset(
+        {"signal": ("cpi", mx.array([3.0, 4.0], dtype=mx.float32))},
+        coords={"cpi": [2, 3]},
+    )
+    second.to_netcdf(path, engine=engine, mode="a", append_dim="cpi")
+
+    with xr.open_dataset(path, engine=engine) as actual:
+        np.testing.assert_array_equal(actual["signal"], [1.0, 2.0, 3.0, 4.0])
+
+
+@pytest.mark.parametrize("engine", _available_engines())
 def test_to_netcdf_append_dim_extends_unlimited_dimension(tmp_path, engine):
     path = tmp_path / "append.nc"
     first = xr.Dataset(
