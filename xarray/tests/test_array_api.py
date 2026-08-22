@@ -116,6 +116,35 @@ def test_indexing(arrays: tuple[xr.DataArray, xr.DataArray]) -> None:
     assert_equal(actual_np, expected)
 
 
+def test_vectorized_indexing() -> None:
+    values = np.arange(2 * 3 * 4 * 8).reshape(2, 3, 4, 8)
+    np_arr = xr.DataArray(values, dims=("pair", "pulse", "element", "sample"))
+    xp_arr = xr.DataArray(
+        xp.asarray(values), dims=("pair", "pulse", "element", "sample")
+    )
+    sample = xr.DataArray(
+        np.array([[1, 2], [3, 4]]),
+        dims=("pair", "direct_reference_sample"),
+    )
+    expected = np_arr.isel(sample=sample)
+    actual = xp_arr.isel(sample=sample)
+    assert isinstance(actual.data, Array)
+    actual_np = actual.copy(data=np.asarray(actual.data))
+    assert_equal(actual_np, expected)
+
+
+def test_scalar_vectorized_indexing() -> None:
+    values = np.arange(2 * 3).reshape(2, 3)
+    np_arr = xr.DataArray(values, dims=("pair", "sample"))
+    xp_arr = xr.DataArray(xp.asarray(values), dims=("pair", "sample"))
+    sample = xr.DataArray(np.array(-1))
+    expected = np_arr.isel(sample=sample)
+    actual = xp_arr.isel(sample=sample)
+    assert isinstance(actual.data, Array)
+    actual_np = actual.copy(data=np.asarray(actual.data))
+    assert_equal(actual_np, expected)
+
+
 def test_properties(arrays: tuple[xr.DataArray, xr.DataArray]) -> None:
     np_arr, xp_arr = arrays
 

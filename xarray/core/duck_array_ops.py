@@ -492,6 +492,11 @@ def transpose(array, axes=None):
 
 def moveaxis(array, source, destination):
     xp = get_array_namespace(array)
+    if hasattr(xp, "permute_dims"):
+        axes = np.moveaxis(
+            np.empty(tuple(range(array.ndim))), source, destination
+        ).shape
+        return xp.permute_dims(array, axes)
     return xp.moveaxis(array, source, destination)
 
 
