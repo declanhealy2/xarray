@@ -1789,7 +1789,18 @@ class ArrayApiIndexingAdapter(IndexingAdapter):
         return value
 
     def _vindex_get(self, indexer: VectorizedIndexer):
-        raise TypeError("Vectorized indexing is not supported")
+        key = _arrayize_vectorized_indexer(indexer, self.array.shape).tuple
+        flat_index = np.zeros(np.broadcast(*key).shape, dtype=np.intp)
+        stride = 1
+        for values, size in reversed(tuple(zip(key, self.array.shape, strict=True))):
+            values = _posify_indices(values, size)
+            _check_bounds(values, size)
+            flat_index += values * stride
+            stride *= size
+        xp = self.array.__array_namespace__()
+        data = xp.reshape(self.array, (-1,))
+        indices = xp.reshape(xp.asarray(flat_index), (-1,))
+        return xp.reshape(xp.take(data, indices, axis=0), flat_index.shape)
 
     def __getitem__(self, indexer: ExplicitIndexer):
         self._check_and_raise_if_non_basic_indexer(indexer)

@@ -912,12 +912,22 @@ class _ArrayApiTestNamespace:
 
     @staticmethod
     def take(array, indices, *, axis=None):
-        return _ArrayApiTestArray(np.take(array.values, indices, axis=axis))
+        index = indices.values if isinstance(indices, _ArrayApiTestArray) else indices
+        return _ArrayApiTestArray(np.take(array.values, index, axis=axis))
+
+    @staticmethod
+    def reshape(array, shape):
+        values = array.values if isinstance(array, _ArrayApiTestArray) else array
+        return _ArrayApiTestArray(np.reshape(values, shape))
 
 
 class _ArrayApiTestArray:
     def __init__(self, values):
         self.values = np.asarray(values)
+
+    @property
+    def shape(self):
+        return self.values.shape
 
     def __array_namespace__(self, api_version=None):
         return _ArrayApiTestNamespace
@@ -932,6 +942,16 @@ def test_array_api_outer_indexing_uses_namespace_take() -> None:
         indexing.OuterIndexer((np.array([2, 0]), slice(1, 4)))
     ]
     np.testing.assert_array_equal(actual.values, [[9, 10, 11], [1, 2, 3]])
+
+
+def test_array_api_vectorized_indexing_uses_namespace_take() -> None:
+    values = np.arange(2 * 3 * 4).reshape(2, 3, 4)
+    indexer = indexing.VectorizedIndexer(
+        (np.array([[0], [1]]), slice(None), np.array([[1, 3]]))
+    )
+    expected = indexing.NumpyIndexingAdapter(values).vindex[indexer]
+    actual = indexing.ArrayApiIndexingAdapter(_ArrayApiTestArray(values)).vindex[indexer]
+    np.testing.assert_array_equal(actual.values, expected)
 
 
 def test_implicit_indexing_adapter_duck_array() -> None:
