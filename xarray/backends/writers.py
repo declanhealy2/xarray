@@ -431,6 +431,13 @@ def to_netcdf(
     if engine is None:
         engine = get_default_netcdf_write_engine(normalized_path, format)
 
+    dataset = dataset._replace(
+        variables={
+            name: variable if is_chunked_array(variable._data) else variable.as_numpy()
+            for name, variable in dataset.variables.items()
+        }
+    )
+
     # validate Dataset keys, DataArray names, and attr keys/values
     _validate_dataset_names(dataset)
     _validate_attrs(dataset, engine, invalid_netcdf)
@@ -609,9 +616,7 @@ def _append_to_store(
         append_dim in variable.dims and is_chunked_array(variable._data)
         for variable in variables.values()
     ):
-        raise NotImplementedError(
-            "append_dim does not yet support chunked arrays"
-        )
+        raise NotImplementedError("append_dim does not yet support chunked arrays")
 
     existing_raw = store.get_variables()
     existing_dimensions = store.get_dimensions()
@@ -676,9 +681,7 @@ def _append_to_store(
         if not _array_equal(
             np.asarray(variable.data), np.asarray(existing_variable.data)
         ):
-            raise ValueError(
-                f"coordinate {name!r} differs from the target netCDF file"
-            )
+            raise ValueError(f"coordinate {name!r} differs from the target netCDF file")
 
     encoded_variables, encoded_attrs = store.encode(validated, attrs)
     existing_attrs = store.get_attrs()
