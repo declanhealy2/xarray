@@ -525,6 +525,9 @@ def _create_nan_agg_method(name, coerce_strings=False, invariant_0d=False):
         if kwargs.pop("out", None) is not None:
             raise TypeError(f"`out` is not valid for {name}")
 
+        if kwargs.get("dtype") is None:
+            kwargs.pop("dtype", None)
+
         # The data is invariant in the case of 0d data, so do not
         # change the data (and dtype)
         # See https://github.com/pydata/xarray/issues/4885

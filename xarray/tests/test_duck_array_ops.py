@@ -1225,3 +1225,48 @@ def test_extension_array_attr():
     wrapped = PandasExtensionArray(interval_array)  # type: ignore[arg-type]
     assert_array_equal(wrapped.left, interval_array.left, strict=True)
     assert wrapped.closed == interval_array.closed
+
+
+def test_nan_reductions_preserve_array_api_namespace():
+    mx = pytest.importorskip("mlx.core")
+    values = DataArray(
+        mx.array([1.0, float("nan"), 3.0], dtype=mx.float32), dims=("sample",)
+    )
+    expected = {
+        "prod": mx.array(3.0, dtype=mx.float32),
+        "mean": mx.array(2.0, dtype=mx.float32),
+        "var": mx.array(1.0, dtype=mx.float32),
+        "std": mx.array(1.0, dtype=mx.float32),
+        "min": mx.array(1.0, dtype=mx.float32),
+        "max": mx.array(3.0, dtype=mx.float32),
+        "cumsum": mx.array([1.0, 1.0, 4.0], dtype=mx.float32),
+        "cumprod": mx.array([1.0, 1.0, 3.0], dtype=mx.float32),
+    }
+    for name, target in expected.items():
+        actual = getattr(values, name)()
+        assert isinstance(actual.data, mx.array)
+        assert mx.allclose(actual.data, target, equal_nan=True).item()
+
+    empty = DataArray(mx.array([float("nan")], dtype=mx.float32), dims=("sample",))
+    assert mx.allclose(empty.mean().data, mx.array(float("nan")), equal_nan=True).item()
+    assert mx.allclose(empty.var().data, mx.array(float("nan")), equal_nan=True).item()
+    assert mx.allclose(values.var("sample", ddof=1).data, mx.array(2.0)).item()
+
+    matrix = DataArray(
+        mx.array([[1.0, float("nan")], [3.0, 7.0]], dtype=mx.float32),
+        dims=("cpi", "sample"),
+    )
+    assert mx.allclose(
+        matrix.mean("sample").data, mx.array([1.0, 5.0]), equal_nan=True
+    ).item()
+    assert mx.allclose(
+        matrix.var("sample", ddof=1).data,
+        mx.array([float("nan"), 8.0]),
+        equal_nan=True,
+    ).item()
+
+    complete = DataArray(mx.array([1.0, 3.0], dtype=mx.float32), dims=("sample",))
+    for name, target in {"mean": 2.0, "var": 1.0}.items():
+        actual = getattr(complete, name)(skipna=False, dtype=None)
+        assert isinstance(actual.data, mx.array)
+        assert mx.allclose(actual.data, mx.array(target, dtype=mx.float32)).item()
