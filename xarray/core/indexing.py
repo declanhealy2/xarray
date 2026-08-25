@@ -19,7 +19,7 @@ from packaging.version import Version
 from xarray.compat.npcompat import HAS_STRING_DTYPE
 from xarray.core import duck_array_ops
 from xarray.core.coordinate_transform import CoordinateTransform
-from xarray.core.nputils import NumpyVIndexAdapter
+from xarray.core.nputils import NumpyVIndexAdapter, _advanced_indexer_subspaces
 from xarray.core.types import T_Xarray
 from xarray.core.utils import (
     NDArrayMixin,
@@ -1786,7 +1786,17 @@ class ArrayApiIndexingAdapter(IndexingAdapter):
         return value
 
     def _vindex_get(self, indexer: VectorizedIndexer):
-        raise TypeError("Vectorized indexing is not supported")
+        xp = self.array.__array_namespace__()
+        source, destination = _advanced_indexer_subspaces(indexer.tuple)
+        key = tuple(
+            xp.asarray(value) if isinstance(value, np.ndarray) else value
+            for value in indexer.tuple
+        )
+        result = self.array[key]
+        order = [axis for axis in range(result.ndim) if axis not in source]
+        for target, axis in sorted(zip(destination, source, strict=True)):
+            order.insert(target, axis)
+        return xp.permute_dims(result, tuple(order))
 
     def __getitem__(self, indexer: ExplicitIndexer):
         self._check_and_raise_if_non_basic_indexer(indexer)

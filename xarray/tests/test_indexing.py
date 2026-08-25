@@ -1052,6 +1052,53 @@ class ArrayWithNamespaceAndArrayFunction:
         pass
 
 
+class VectorizedArrayNamespace:
+    @staticmethod
+    def asarray(value):
+        return VectorizedArray(np.asarray(value))
+
+    @staticmethod
+    def permute_dims(value, axes):
+        return VectorizedArray(np.transpose(value.array, axes))
+
+
+class VectorizedArray:
+    def __init__(self, array):
+        self.array = np.asarray(array)
+
+    @property
+    def ndim(self):
+        return self.array.ndim
+
+    def __array_namespace__(self):
+        return VectorizedArrayNamespace
+
+    def __getitem__(self, key):
+        unwrapped = tuple(
+            value.array if isinstance(value, VectorizedArray) else value for value in key
+        )
+        return type(self)(self.array[unwrapped])
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        (np.array([0, 1]), np.array([1, 2]), slice(None)),
+        (slice(None), np.array([[0], [2]]), np.array([[1, 3]])),
+        (np.array([[0], [1]]), slice(None, None, 2), np.array([[3, 1]])),
+        (slice(None, None, -1), np.array([2, 0]), slice(1, None)),
+    ],
+)
+def test_array_api_vectorized_indexing(key) -> None:
+    values = np.arange(24).reshape(2, 3, 4)
+    indexer = indexing.VectorizedIndexer(key)
+    expected = nputils.NumpyVIndexAdapter(values)[key]
+
+    actual = indexing.ArrayApiIndexingAdapter(VectorizedArray(values)).vindex[indexer]
+
+    np.testing.assert_array_equal(expected, actual.array)
+
+
 def as_dask_array(arr, chunks):
     if not has_dask:
         return None
