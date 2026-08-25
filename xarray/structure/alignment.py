@@ -694,7 +694,7 @@ def align(
     copy: bool = True,
     indexes=None,
     exclude: str | Iterable[Hashable] = frozenset(),
-    fill_value=dtypes.NA,
+    fill_value: Any = dtypes.NA,
 ) -> tuple[T_Obj1]: ...
 
 
@@ -708,7 +708,7 @@ def align(
     copy: bool = True,
     indexes=None,
     exclude: str | Iterable[Hashable] = frozenset(),
-    fill_value=dtypes.NA,
+    fill_value: Any = dtypes.NA,
 ) -> tuple[T_Obj1, T_Obj2]: ...
 
 
@@ -723,7 +723,7 @@ def align(
     copy: bool = True,
     indexes=None,
     exclude: str | Iterable[Hashable] = frozenset(),
-    fill_value=dtypes.NA,
+    fill_value: Any = dtypes.NA,
 ) -> tuple[T_Obj1, T_Obj2, T_Obj3]: ...
 
 
@@ -739,7 +739,7 @@ def align(
     copy: bool = True,
     indexes=None,
     exclude: str | Iterable[Hashable] = frozenset(),
-    fill_value=dtypes.NA,
+    fill_value: Any = dtypes.NA,
 ) -> tuple[T_Obj1, T_Obj2, T_Obj3, T_Obj4]: ...
 
 
@@ -756,7 +756,7 @@ def align(
     copy: bool = True,
     indexes=None,
     exclude: str | Iterable[Hashable] = frozenset(),
-    fill_value=dtypes.NA,
+    fill_value: Any = dtypes.NA,
 ) -> tuple[T_Obj1, T_Obj2, T_Obj3, T_Obj4, T_Obj5]: ...
 
 
@@ -767,7 +767,7 @@ def align(
     copy: bool = True,
     indexes=None,
     exclude: str | Iterable[Hashable] = frozenset(),
-    fill_value=dtypes.NA,
+    fill_value: Any = dtypes.NA,
 ) -> tuple[T_Alignable, ...]: ...
 
 
@@ -777,7 +777,7 @@ def align(
     copy: bool = True,
     indexes=None,
     exclude: str | Iterable[Hashable] = frozenset(),
-    fill_value=dtypes.NA,
+    fill_value: Any = dtypes.NA,
 ) -> tuple[T_Alignable, ...]:
     """
     Given any number of Dataset and/or DataArray objects, returns new
